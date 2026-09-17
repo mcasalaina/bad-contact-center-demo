@@ -14,8 +14,8 @@ demonstrates poor contact-center behavior.
   forwarding and assistant audio playback are suppressed during the lookup.
 - After the lookup, Jolene asks: "Are you asking if there's a pool with a nice
   background or scenery?"
-- A request for a live person gets: "I am a live person. I'm Jolene from
-  Lyrenza Hotel Dallas."
+- A request for a live person gets the offended, emphatic response: "I AM a
+  live person, y'all! I'm Jolene from Lyrenza Hotel Dallas!"
 - Ending the call creates separate caller, system-output, and combined-call
   recordings for download. Recording happens in the browser and is not uploaded.
 

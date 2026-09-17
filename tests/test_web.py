@@ -13,6 +13,7 @@ from app.main import (
     GREETING,
     INSTRUCTIONS,
     LIVE_PERSON_RESPONSE,
+    LIVE_PERSON_DELIVERY,
     MODEL,
     POOL_FOLLOW_UP,
     SOUTHERN_DELIVERY,
@@ -45,6 +46,8 @@ def test_demo_defaults() -> None:
     assert GREETING in session["instructions"]
     assert POOL_FOLLOW_UP in session["instructions"]
     assert LIVE_PERSON_RESPONSE in session["instructions"]
+    assert LIVE_PERSON_DELIVERY in session["instructions"]
+    assert LIVE_PERSON_RESPONSE.startswith("I AM a live person, y'all!")
     assert SOUTHERN_DELIVERY in session["instructions"]
     assert "Maintain this thick accent throughout the entire call" in session[
         "instructions"
