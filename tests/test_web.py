@@ -152,15 +152,16 @@ def test_root_redirects_to_sign_in(monkeypatch: object) -> None:
     assert response.headers["location"].startswith("/.auth/login/aad?")
 
 
-def test_app_includes_three_recording_downloads(monkeypatch: object) -> None:
+def test_app_includes_one_combined_recording_download(monkeypatch: object) -> None:
     monkeypatch.setenv("ALLOWED_TENANT_IDS", "tenant-a")
     headers = {"x-ms-client-principal": principal_header("tenant-a")}
     page = TestClient(app).get("/app", headers=headers)
 
     assert page.status_code == 200
-    assert 'id="user-download"' in page.text
-    assert 'id="system-download"' in page.text
     assert 'id="mixed-download"' in page.text
+    assert 'id="user-download"' not in page.text
+    assert 'id="system-download"' not in page.text
+    assert "Download Call Audio" in page.text
     assert '<select id="voice">' in page.text
     assert '<select id="model">' in page.text
     assert '<option value="coral" selected>Coral</option>' in page.text

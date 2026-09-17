@@ -34,7 +34,6 @@ let audioContext;
 let mediaStream;
 let microphoneSource;
 let microphoneProcessor;
-let systemCapture;
 let mixedCapture;
 let playbackTime = 0;
 let toolTimer;
@@ -164,12 +163,10 @@ function resetDownloads() {
   recordingUrls.forEach((url) => URL.revokeObjectURL(url));
   recordingUrls = [];
   $("recording-downloads").classList.add("hidden");
-  for (const id of ["user-download", "system-download", "mixed-download"]) {
-    const link = $(id);
-    link.removeAttribute("href");
-    link.classList.add("disabled");
-    link.setAttribute("aria-disabled", "true");
-  }
+  const link = $("mixed-download");
+  link.removeAttribute("href");
+  link.classList.add("disabled");
+  link.setAttribute("aria-disabled", "true");
 }
 
 async function startAudioAndRecording() {
@@ -193,21 +190,21 @@ async function startAudioAndRecording() {
     socket.send(pcm16(downsample(samples, audioContext.sampleRate)));
   };
 
-  systemCapture = audioContext.createMediaStreamDestination();
   mixedCapture = audioContext.createMediaStreamDestination();
   microphoneSource.connect(mixedCapture);
 
   const date = new Date().toISOString().replaceAll(":", "-").replace(/\..+/, "");
   recorders = [
-    createRecorder(mediaStream, "user-download", `lyrenza-caller-${date}.webm`),
-    createRecorder(systemCapture.stream, "system-download", `lyrenza-system-${date}.webm`),
-    createRecorder(mixedCapture.stream, "mixed-download", `lyrenza-combined-${date}.webm`),
+    createRecorder(
+      mixedCapture.stream,
+      "mixed-download",
+      `lyrenza-call-${date}.webm`,
+    ),
   ];
 }
 
 function connectOutput(node) {
   node.connect(audioContext.destination);
-  node.connect(systemCapture);
   node.connect(mixedCapture);
 }
 

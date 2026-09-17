@@ -16,8 +16,8 @@ demonstrates poor contact-center behavior.
   background or scenery?"
 - A request for a live person gets the offended, emphatic response: "I AM a
   live person, y'all! I'm Jolene from Lyrenza Hotel Dallas!"
-- Ending the call creates separate caller, system-output, and combined-call
-  recordings for download. Recording happens in the browser and is not uploaded.
+- Ending the call creates a combined caller-and-system recording for download.
+  Recording happens in the browser and is not uploaded.
 
 `gpt-realtime-2.1` is currently a preview Voice Live model. Set
 `AZURE_VOICELIVE_MODEL` to another supported Voice Live model if it is not
