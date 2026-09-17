@@ -1,0 +1,213 @@
+targetScope = 'resourceGroup'
+
+@description('Azure region for the web application.')
+param location string = resourceGroup().location
+
+@description('Globally unique suffix used by the container registry.')
+param suffix string
+
+@description('Azure Voice Live resource endpoint.')
+param voiceLiveEndpoint string
+
+@description('Voice Live model name.')
+param voiceLiveModel string = 'gpt-realtime-2.1'
+
+@description('Voice Live voice name.')
+param voiceLiveVoice string = 'shimmer'
+
+@description('Comma-separated Entra tenant IDs allowed to use the web application.')
+param allowedTenantIds string = ''
+
+@description('Client ID of the multi-tenant Entra app used by Container Apps authentication.')
+param entraClientId string = ''
+
+@description('Container Apps authentication credential setting used by the Entra provider.')
+param entraCredentialSettingName string = 'microsoft-provider-authentication-secret'
+
+var baseName = 'bad-contact-center'
+var identityName = '${baseName}-web-id'
+var environmentName = '${baseName}-env'
+var appName = '${baseName}-web'
+var registryName = 'badcontact${suffix}'
+var workspaceName = '${baseName}-logs'
+
+resource identity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
+  name: identityName
+  location: location
+}
+
+resource workspace 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
+  name: workspaceName
+  location: location
+  properties: {
+    retentionInDays: 30
+    features: {
+      enableLogAccessUsingOnlyResourcePermissions: true
+    }
+  }
+}
+
+resource registry 'Microsoft.ContainerRegistry/registries@2023-07-01' = {
+  name: registryName
+  location: location
+  sku: {
+    name: 'Basic'
+  }
+  properties: {
+    adminUserEnabled: false
+    publicNetworkAccess: 'Enabled'
+  }
+}
+
+resource acrPullRole 'Microsoft.Authorization/roleDefinitions@2022-04-01' existing = {
+  scope: subscription()
+  name: '7f951dda-4ed3-4680-a7ca-43fe172d538d'
+}
+
+resource identityAcrPull 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(registry.id, identity.id, acrPullRole.id)
+  scope: registry
+  properties: {
+    principalId: identity.properties.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: acrPullRole.id
+  }
+}
+
+resource environment 'Microsoft.App/managedEnvironments@2024-03-01' = {
+  name: environmentName
+  location: location
+  properties: {
+    appLogsConfiguration: {
+      destination: 'log-analytics'
+      logAnalyticsConfiguration: {
+        customerId: workspace.properties.customerId
+        sharedKey: workspace.listKeys().primarySharedKey
+      }
+    }
+  }
+}
+
+resource web 'Microsoft.App/containerApps@2024-03-01' = {
+  name: appName
+  location: location
+  identity: {
+    type: 'UserAssigned'
+    userAssignedIdentities: {
+      '${identity.id}': {}
+    }
+  }
+  properties: {
+    managedEnvironmentId: environment.id
+    configuration: {
+      activeRevisionsMode: 'Single'
+      ingress: {
+        external: true
+        targetPort: 8080
+        transport: 'auto'
+        allowInsecure: false
+      }
+      registries: [
+        {
+          server: registry.properties.loginServer
+          identity: identity.id
+        }
+      ]
+    }
+    template: {
+      containers: [
+        {
+          name: 'web'
+          image: 'mcr.microsoft.com/azuredocs/containerapps-helloworld:latest'
+          env: [
+            {
+              name: 'AZURE_CLIENT_ID'
+              value: identity.properties.clientId
+            }
+            {
+              name: 'AZURE_VOICELIVE_ENDPOINT'
+              value: voiceLiveEndpoint
+            }
+            {
+              name: 'AZURE_VOICELIVE_MODEL'
+              value: voiceLiveModel
+            }
+            {
+              name: 'AZURE_VOICELIVE_VOICE'
+              value: voiceLiveVoice
+            }
+            {
+              name: 'ALLOWED_TENANT_IDS'
+              value: allowedTenantIds
+            }
+          ]
+          resources: {
+            cpu: json('0.5')
+            memory: '1Gi'
+          }
+          probes: [
+            {
+              type: 'Liveness'
+              httpGet: {
+                path: '/health'
+                port: 8080
+                scheme: 'HTTP'
+              }
+              initialDelaySeconds: 10
+              periodSeconds: 20
+            }
+          ]
+        }
+      ]
+      scale: {
+        minReplicas: 0
+        maxReplicas: 1
+      }
+    }
+  }
+  dependsOn: [
+    identityAcrPull
+  ]
+}
+
+resource auth 'Microsoft.App/containerApps/authConfigs@2024-03-01' = if (!empty(entraClientId)) {
+  parent: web
+  name: 'current'
+  properties: {
+    platform: {
+      enabled: true
+    }
+    globalValidation: {
+      excludedPaths: [
+        '/'
+        '/health'
+      ]
+      redirectToProvider: 'azureactivedirectory'
+      unauthenticatedClientAction: 'RedirectToLoginPage'
+    }
+    identityProviders: {
+      azureActiveDirectory: {
+        registration: {
+          clientId: entraClientId
+          clientSecretSettingName: entraCredentialSettingName
+          openIdIssuer: '${az.environment().authentication.loginEndpoint}common/v2.0'
+        }
+      }
+    }
+    httpSettings: {
+      requireHttps: true
+    }
+    login: {
+      tokenStore: {
+        enabled: false
+      }
+    }
+  }
+}
+
+output acrName string = registry.name
+output acrLoginServer string = registry.properties.loginServer
+output containerAppName string = web.name
+output containerAppUrl string = 'https://${web.properties.configuration.ingress.fqdn}'
+output webIdentityClientId string = identity.properties.clientId
+output webIdentityPrincipalId string = identity.properties.principalId

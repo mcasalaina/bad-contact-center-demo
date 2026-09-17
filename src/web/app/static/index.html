@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Lyrenza Hotel Dallas contact center demo</title>
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <main>
+    <header>
+      <p class="eyebrow">LYRENZA HOTEL DALLAS / TRAINING DEMO</p>
+      <h1>A deliberately bad contact-center call</h1>
+      <p class="lede">Start the call, ask when the pool is open, or ask to speak to a live person. Jolene demonstrates the behaviors to avoid.</p>
+    </header>
+
+    <section class="controls">
+      <label class="voice-picker" for="model">
+        Model
+        <select id="model">
+          <option value="gpt-realtime-2.1" selected>GPT Realtime 2.1</option>
+          <option value="azure-realtime">Azure Realtime</option>
+        </select>
+      </label>
+      <label class="voice-picker" for="voice">
+        Voice
+        <select id="voice">
+          <option value="coral" selected>Coral</option>
+          <option value="ballad">Ballad</option>
+          <option value="marin">Marin</option>
+          <option value="sage">Sage</option>
+          <option value="shimmer">Shimmer</option>
+          <option value="alloy">Alloy</option>
+          <option value="ash">Ash</option>
+          <option value="cedar">Cedar</option>
+          <option value="echo">Echo</option>
+          <option value="verse">Verse</option>
+        </select>
+      </label>
+      <button id="start">Call Lyrenza Hotel Dallas</button>
+      <button id="stop" class="secondary" disabled>End call</button>
+      <div id="recording-downloads" class="download-grid hidden">
+        <a id="user-download" class="download disabled" aria-disabled="true">Caller audio</a>
+        <a id="system-download" class="download disabled" aria-disabled="true">System audio</a>
+        <a id="mixed-download" class="download disabled" aria-disabled="true">Combined call</a>
+      </div>
+      <span id="connection" class="pill">Ready</span>
+    </section>
+
+    <section class="tool-card" id="tool-card">
+      <div>
+        <p class="eyebrow">POOL LOOKUP</p>
+        <h2 id="tool-state">Not requested</h2>
+      </div>
+      <div class="timer"><span id="elapsed">0</span><small>/ 6s</small></div>
+      <div class="bar"><span id="progress"></span></div>
+    </section>
+
+    <section class="grid">
+      <article>
+        <h2>Conversation</h2>
+        <div id="conversation" class="stream empty">The transcript will appear here.</div>
+      </article>
+      <article>
+        <h2>Call events</h2>
+        <div id="timeline" class="stream empty">No call events yet.</div>
+      </article>
+    </section>
+
+  </main>
+  <script src="/static/app.js"></script>
+</body>
+</html>
