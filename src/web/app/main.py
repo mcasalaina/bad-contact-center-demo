@@ -30,7 +30,7 @@ from azure.ai.voicelive.models import (
     ServerVad,
     ToolChoiceLiteral,
 )
-from azure.identity.aio import DefaultAzureCredential
+from azure.identity.aio import DefaultAzureCredential, ManagedIdentityCredential
 from fastapi import FastAPI, Request, Response, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
@@ -160,6 +160,13 @@ def principal_tenant_id(encoded_principal: str | None) -> str | None:
 def tenant_is_allowed(encoded_principal: str | None) -> bool:
     allowed = allowed_tenant_ids()
     return not allowed or principal_tenant_id(encoded_principal) in allowed
+
+
+def azure_credential() -> DefaultAzureCredential | ManagedIdentityCredential:
+    client_id = os.getenv("AZURE_CLIENT_ID", "").strip()
+    if client_id:
+        return ManagedIdentityCredential(client_id=client_id)
+    return DefaultAzureCredential()
 
 
 def account_endpoint() -> str:
@@ -440,6 +447,8 @@ async def restrict_tenant(
 
 @app.get("/")
 async def login() -> RedirectResponse:
+    if not allowed_tenant_ids():
+        return RedirectResponse(url="/app", status_code=302)
     return RedirectResponse(
         url="/.auth/login/aad?post_login_redirect_uri=%2Fapp",
         status_code=302,
@@ -469,7 +478,7 @@ async def websocket_session(websocket: WebSocket) -> None:
         return
 
     await websocket.accept()
-    credential = DefaultAzureCredential()
+    credential = azure_credential()
     tool_running = asyncio.Event()
     try:
         model, voice = await read_start_message(websocket)

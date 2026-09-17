@@ -1,67 +1,63 @@
 targetScope = 'resourceGroup'
 
-@description('Azure region for the web application.')
+@description('Azure region for the Container App.')
 param location string = resourceGroup().location
 
-@description('Globally unique suffix used by the container registry.')
-param suffix string
+@description('Existing Container Apps managed environment name.')
+param managedEnvironmentName string
 
-@description('Azure Voice Live resource endpoint.')
-param voiceLiveEndpoint string
+@description('Existing Azure Container Registry name.')
+param registryName string
 
-@description('Voice Live model name.')
+@description('Existing Azure AI account name that provides Voice Live.')
+param voiceLiveAccountName string
+
+@description('Immutable container image tag built in the existing registry.')
+param imageTag string
+
+@description('Deploy the Container App after managed-identity roles have propagated.')
+param deployContainerApp bool = true
+
+@description('Voice Live model used when a client omits a model selection.')
 param voiceLiveModel string = 'gpt-realtime-2.1'
 
-@description('Voice Live voice name.')
-param voiceLiveVoice string = 'shimmer'
+@description('Voice Live voice used when a client omits a voice selection.')
+param voiceLiveVoice string = 'coral'
 
-@description('Comma-separated Entra tenant IDs allowed to use the web application.')
-param allowedTenantIds string = ''
+var appName = 'lyrenza-hotel-dallas'
+var identityName = '${appName}-id'
+var imageName = 'bad-contact-center-demo'
 
-@description('Client ID of the multi-tenant Entra app used by Container Apps authentication.')
-param entraClientId string = ''
+resource managedEnvironment 'Microsoft.App/managedEnvironments@2024-03-01' existing = {
+  name: managedEnvironmentName
+}
 
-@description('Container Apps authentication credential setting used by the Entra provider.')
-param entraCredentialSettingName string = 'microsoft-provider-authentication-secret'
+resource registry 'Microsoft.ContainerRegistry/registries@2023-07-01' existing = {
+  name: registryName
+}
 
-var baseName = 'bad-contact-center'
-var identityName = '${baseName}-web-id'
-var environmentName = '${baseName}-env'
-var appName = '${baseName}-web'
-var registryName = 'badcontact${suffix}'
-var workspaceName = '${baseName}-logs'
+resource voiceLiveAccount 'Microsoft.CognitiveServices/accounts@2024-10-01' existing = {
+  name: voiceLiveAccountName
+}
 
 resource identity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
   name: identityName
   location: location
 }
 
-resource workspace 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
-  name: workspaceName
-  location: location
-  properties: {
-    retentionInDays: 30
-    features: {
-      enableLogAccessUsingOnlyResourcePermissions: true
-    }
-  }
-}
-
-resource registry 'Microsoft.ContainerRegistry/registries@2023-07-01' = {
-  name: registryName
-  location: location
-  sku: {
-    name: 'Basic'
-  }
-  properties: {
-    adminUserEnabled: false
-    publicNetworkAccess: 'Enabled'
-  }
-}
-
 resource acrPullRole 'Microsoft.Authorization/roleDefinitions@2022-04-01' existing = {
   scope: subscription()
   name: '7f951dda-4ed3-4680-a7ca-43fe172d538d'
+}
+
+resource cognitiveServicesUserRole 'Microsoft.Authorization/roleDefinitions@2022-04-01' existing = {
+  scope: subscription()
+  name: 'a97b65f3-24c7-4388-baec-2e87135dc908'
+}
+
+resource foundryUserRole 'Microsoft.Authorization/roleDefinitions@2022-04-01' existing = {
+  scope: subscription()
+  name: '53ca6127-db72-4b80-b1b0-d745d6d5456d'
 }
 
 resource identityAcrPull 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
@@ -74,21 +70,27 @@ resource identityAcrPull 'Microsoft.Authorization/roleAssignments@2022-04-01' = 
   }
 }
 
-resource environment 'Microsoft.App/managedEnvironments@2024-03-01' = {
-  name: environmentName
-  location: location
+resource identityVoiceLiveUser 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(voiceLiveAccount.id, identity.id, cognitiveServicesUserRole.id)
+  scope: voiceLiveAccount
   properties: {
-    appLogsConfiguration: {
-      destination: 'log-analytics'
-      logAnalyticsConfiguration: {
-        customerId: workspace.properties.customerId
-        sharedKey: workspace.listKeys().primarySharedKey
-      }
-    }
+    principalId: identity.properties.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: cognitiveServicesUserRole.id
   }
 }
 
-resource web 'Microsoft.App/containerApps@2024-03-01' = {
+resource identityFoundryUser 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(voiceLiveAccount.id, identity.id, foundryUserRole.id)
+  scope: voiceLiveAccount
+  properties: {
+    principalId: identity.properties.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: foundryUserRole.id
+  }
+}
+
+resource web 'Microsoft.App/containerApps@2024-03-01' = if (deployContainerApp) {
   name: appName
   location: location
   identity: {
@@ -98,7 +100,7 @@ resource web 'Microsoft.App/containerApps@2024-03-01' = {
     }
   }
   properties: {
-    managedEnvironmentId: environment.id
+    managedEnvironmentId: managedEnvironment.id
     configuration: {
       activeRevisionsMode: 'Single'
       ingress: {
@@ -118,7 +120,7 @@ resource web 'Microsoft.App/containerApps@2024-03-01' = {
       containers: [
         {
           name: 'web'
-          image: 'mcr.microsoft.com/azuredocs/containerapps-helloworld:latest'
+          image: '${registry.properties.loginServer}/${imageName}:${imageTag}'
           env: [
             {
               name: 'AZURE_CLIENT_ID'
@@ -126,7 +128,7 @@ resource web 'Microsoft.App/containerApps@2024-03-01' = {
             }
             {
               name: 'AZURE_VOICELIVE_ENDPOINT'
-              value: voiceLiveEndpoint
+              value: 'https://${voiceLiveAccount.name}.services.ai.azure.com/'
             }
             {
               name: 'AZURE_VOICELIVE_MODEL'
@@ -138,7 +140,7 @@ resource web 'Microsoft.App/containerApps@2024-03-01' = {
             }
             {
               name: 'ALLOWED_TENANT_IDS'
-              value: allowedTenantIds
+              value: ''
             }
           ]
           resources: {
@@ -156,6 +158,16 @@ resource web 'Microsoft.App/containerApps@2024-03-01' = {
               initialDelaySeconds: 10
               periodSeconds: 20
             }
+            {
+              type: 'Readiness'
+              httpGet: {
+                path: '/health'
+                port: 8080
+                scheme: 'HTTP'
+              }
+              initialDelaySeconds: 5
+              periodSeconds: 10
+            }
           ]
         }
       ]
@@ -167,47 +179,12 @@ resource web 'Microsoft.App/containerApps@2024-03-01' = {
   }
   dependsOn: [
     identityAcrPull
+    identityVoiceLiveUser
+    identityFoundryUser
   ]
 }
 
-resource auth 'Microsoft.App/containerApps/authConfigs@2024-03-01' = if (!empty(entraClientId)) {
-  parent: web
-  name: 'current'
-  properties: {
-    platform: {
-      enabled: true
-    }
-    globalValidation: {
-      excludedPaths: [
-        '/'
-        '/health'
-      ]
-      redirectToProvider: 'azureactivedirectory'
-      unauthenticatedClientAction: 'RedirectToLoginPage'
-    }
-    identityProviders: {
-      azureActiveDirectory: {
-        registration: {
-          clientId: entraClientId
-          clientSecretSettingName: entraCredentialSettingName
-          openIdIssuer: '${az.environment().authentication.loginEndpoint}common/v2.0'
-        }
-      }
-    }
-    httpSettings: {
-      requireHttps: true
-    }
-    login: {
-      tokenStore: {
-        enabled: false
-      }
-    }
-  }
-}
-
-output acrName string = registry.name
-output acrLoginServer string = registry.properties.loginServer
-output containerAppName string = web.name
-output containerAppUrl string = 'https://${web.properties.configuration.ingress.fqdn}'
-output webIdentityClientId string = identity.properties.clientId
-output webIdentityPrincipalId string = identity.properties.principalId
+output containerAppName string = deployContainerApp ? web.name : ''
+output containerAppUrl string = deployContainerApp ? 'https://${web!.properties.configuration.ingress.fqdn}' : ''
+output identityClientId string = identity.properties.clientId
+output identityPrincipalId string = identity.properties.principalId

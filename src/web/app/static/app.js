@@ -41,7 +41,7 @@ let toolStartedAt = 0;
 let toolActive = false;
 let stopping = false;
 let recorders = [];
-let recordingUrls = [];
+let recordingUrl;
 const playbackNodes = new Set();
 
 function stamp() {
@@ -146,7 +146,8 @@ function createRecorder(stream, downloadId, filename) {
     recorder.onstop = () => {
       const blob = new Blob(chunks, { type: recorder.mimeType || "audio/webm" });
       const url = URL.createObjectURL(blob);
-      recordingUrls.push(url);
+      if (recordingUrl) URL.revokeObjectURL(recordingUrl);
+      recordingUrl = url;
       const link = $(downloadId);
       link.href = url;
       link.download = filename.replace(".webm", recorder.mimeType.includes("mp4") ? ".mp4" : ".webm");
@@ -157,16 +158,6 @@ function createRecorder(stream, downloadId, filename) {
   });
   recorder.start(250);
   return { recorder, finished };
-}
-
-function resetDownloads() {
-  recordingUrls.forEach((url) => URL.revokeObjectURL(url));
-  recordingUrls = [];
-  $("recording-downloads").classList.add("hidden");
-  const link = $("mixed-download");
-  link.removeAttribute("href");
-  link.classList.add("disabled");
-  link.setAttribute("aria-disabled", "true");
 }
 
 async function startAudioAndRecording() {
@@ -293,23 +284,24 @@ function handleEvent(event) {
 
 async function openSocket() {
   const scheme = location.protocol === "https:" ? "wss" : "ws";
-  socket = new WebSocket(`${scheme}://${location.host}/ws`);
-  socket.binaryType = "arraybuffer";
+  const currentSocket = new WebSocket(`${scheme}://${location.host}/ws`);
+  socket = currentSocket;
+  currentSocket.binaryType = "arraybuffer";
   await new Promise((resolve, reject) => {
-    socket.onopen = resolve;
-    socket.onerror = () => reject(new Error("The voice connection could not be opened."));
+    currentSocket.onopen = resolve;
+    currentSocket.onerror = () => reject(new Error("The voice connection could not be opened."));
   });
-  socket.send(JSON.stringify({
+  currentSocket.send(JSON.stringify({
     type: "start",
     model: $("model").value,
     voice: $("voice").value,
   }));
-  socket.onmessage = async ({ data }) => {
+  currentSocket.onmessage = async ({ data }) => {
     if (data instanceof ArrayBuffer) playAudio(data);
     else handleEvent(JSON.parse(data));
   };
-  socket.onclose = () => {
-    if (!stopping) stop(false);
+  currentSocket.onclose = () => {
+    if (socket === currentSocket && !stopping) stop(false);
   };
 }
 
@@ -318,7 +310,6 @@ async function start() {
   $("model").disabled = true;
   $("voice").disabled = true;
   $("connection").textContent = "Calling...";
-  resetDownloads();
   await startAudioAndRecording();
   addEntry("timeline", "bot", "Remote phone ringing.");
   await playRingTone();
@@ -329,24 +320,46 @@ async function start() {
 async function stop(closeSocket = true) {
   if (stopping) return;
   stopping = true;
-  if (closeSocket) socket?.close();
-  clearInterval(toolTimer);
-  microphoneProcessor?.disconnect();
-  microphoneSource?.disconnect();
-  mediaStream?.getTracks().forEach((track) => track.stop());
-  for (const { recorder } of recorders) {
-    if (recorder.state !== "inactive") recorder.stop();
+  const currentSocket = socket;
+  const currentAudioContext = audioContext;
+  const currentMediaStream = mediaStream;
+  const currentMicrophoneProcessor = microphoneProcessor;
+  const currentMicrophoneSource = microphoneSource;
+  const currentRecorders = recorders;
+
+  socket = undefined;
+  audioContext = undefined;
+  mediaStream = undefined;
+  microphoneProcessor = undefined;
+  microphoneSource = undefined;
+  mixedCapture = undefined;
+  recorders = [];
+
+  try {
+    if (closeSocket) currentSocket?.close();
+    clearInterval(toolTimer);
+    toolActive = false;
+    currentMicrophoneProcessor?.disconnect();
+    currentMicrophoneSource?.disconnect();
+    currentMediaStream?.getTracks().forEach((track) => track.stop());
+    for (const { recorder } of currentRecorders) {
+      if (recorder.state !== "inactive") recorder.stop();
+    }
+    await Promise.all(currentRecorders.map(({ finished }) => finished));
+    if (currentRecorders.length) {
+      $("recording-downloads").classList.remove("hidden");
+    }
+    playbackNodes.clear();
+    await currentAudioContext?.close();
+    $("connection").textContent = "Call ended";
+    addEntry("timeline", "bot", "Recording is ready to download.");
+  } finally {
+    $("start").disabled = false;
+    $("model").disabled = false;
+    $("voice").disabled = false;
+    $("stop").disabled = true;
+    stopping = false;
   }
-  await Promise.all(recorders.map(({ finished }) => finished));
-  $("recording-downloads").classList.remove("hidden");
-  await audioContext?.close();
-  $("connection").textContent = "Call ended";
-  $("start").disabled = false;
-  $("model").disabled = false;
-  $("voice").disabled = false;
-  $("stop").disabled = true;
-  addEntry("timeline", "bot", "Recordings are ready to download.");
-  stopping = false;
 }
 
 $("start").addEventListener("click", () => start().catch(async (error) => {

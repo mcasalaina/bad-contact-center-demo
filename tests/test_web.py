@@ -22,6 +22,7 @@ from app.main import (
     MODEL_VOICES,
     TOOL_DURATION_SECONDS,
     app,
+    azure_credential,
     build_session,
     health,
     principal_tenant_id,
@@ -152,6 +153,21 @@ def test_root_redirects_to_sign_in(monkeypatch: object) -> None:
     assert response.headers["location"].startswith("/.auth/login/aad?")
 
 
+def test_public_root_redirects_to_app(monkeypatch: object) -> None:
+    monkeypatch.delenv("ALLOWED_TENANT_IDS", raising=False)
+    response = TestClient(app).get("/", follow_redirects=False)
+    assert response.status_code == 302
+    assert response.headers["location"] == "/app"
+
+
+def test_azure_credential_uses_managed_identity_in_azure(
+    monkeypatch: object,
+) -> None:
+    monkeypatch.setenv("AZURE_CLIENT_ID", "00000000-0000-0000-0000-000000000001")
+    credential = azure_credential()
+    assert credential.__class__.__name__ == "ManagedIdentityCredential"
+
+
 def test_app_includes_one_combined_recording_download(monkeypatch: object) -> None:
     monkeypatch.setenv("ALLOWED_TENANT_IDS", "tenant-a")
     headers = {"x-ms-client-principal": principal_header("tenant-a")}
@@ -169,6 +185,16 @@ def test_app_includes_one_combined_recording_download(monkeypatch: object) -> No
     assert page.text.index('id="recording-downloads"') < page.text.index(
         'id="connection"'
     )
+
+
+def test_browser_call_lifecycle_keeps_latest_recording() -> None:
+    script = Path("src/web/app/static/app.js").read_text()
+
+    assert "if (socket === currentSocket && !stopping) stop(false);" in script
+    assert "socket = undefined;" in script
+    assert "if (recordingUrl) URL.revokeObjectURL(recordingUrl);" in script
+    assert "recordingUrl = url;" in script
+    assert "resetDownloads();" not in script
 
 
 def test_voice_live_endpoint_is_not_committed() -> None:
